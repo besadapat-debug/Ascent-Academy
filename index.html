@@ -2454,7 +2454,13 @@ function initRTE(host, html){
   const restore = () => { area.focus(); if(saved){ const s = getSelection(); s.removeAllRanges(); s.addRange(saved); } };
   ['keyup','mouseup','input','blur'].forEach(ev => area.addEventListener(ev, () => { save(); wc(); }));
   const exec = (cmd, val) => { restore(); document.execCommand(cmd, false, val); save(); wc(); };
-  const insertHTML = h => exec('insertHTML', h);
+  const insertHTML = h => {
+    const before = area.innerHTML;
+    exec('insertHTML', h);
+    if(area.innerHTML === before){ // execCommand failed (no focus / unsupported) → append at the end
+      area.insertAdjacentHTML('beforeend', h); area.dispatchEvent(new Event('input')); wc();
+    }
+  };
   const setSource = on => {
     if(on === srcMode) return;
     if(on){ src.value = area.innerHTML; area.style.display = 'none'; src.style.display = 'block'; }
@@ -2477,7 +2483,7 @@ function initRTE(host, html){
       const url = v.url.trim(); if(!/^(https?:|mailto:)/i.test(url)){ showToast('Links must start with https://'); return; }
       const sel = (saved && saved.toString()) || ''; insertHTML(`<a href="${esc(url)}" target="_blank" rel="noopener">${esc(v.text.trim() || sel || url)}</a>`); },
     async image(){ save(); const v = await askForm({ title:'Insert image', ok:'Insert', fields:[{id:'url',label:'Image address',placeholder:'https://…/picture.png'},{id:'alt',label:'Description (for screen readers)'}] }); if(!v||!/^https?:\/\//i.test(v.url.trim())){ if(v) showToast('Enter an image address starting with https://'); return; } insertHTML(`<img src="${esc(v.url.trim())}" alt="${esc(v.alt)}">`); },
-    async media(){ save(); const v = await askForm({ title:'Embed media', ok:'Embed', fields:[{id:'code',label:'Video link or embed code',type:'textarea',placeholder:'Paste a YouTube / Vimeo link, or an <iframe …> embed code',hint:'Embed codes from sites like iframe-generator.org work too.'}] }); if(!v) return;
+    async media(){ save(); const v = await askForm({ title:'Embed media', ok:'Embed', fields:[{id:'code',label:'Video link or embed code',type:'textarea',placeholder:'Paste a YouTube / Vimeo link, or an <iframe …> embed code',hint:'Embed codes from sites like iframe-generator.org work too. (Build 2026-10-11 embed2)'}] }); if(!v) return;
       const h = videoLinkToEmbed(v.code); if(!h){ showToast('That does not look like a video link or embed code'); return; } insertHTML(`<div class="embed-frame">${sanitizeHtml(h)}</div><p><br></p>`); },
     async document(){ save(); let files = []; try{ files = await listCourseFiles(); }catch(e){}
       if(!files.length){ showToast('No course files yet — upload one in Files first'); return; }
