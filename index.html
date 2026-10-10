@@ -4293,6 +4293,9 @@ async function loadPoints(){
   awards = await pgFetch(`/point_awards?course_key=eq.${key}&select=*&order=created_at.desc&limit=5000`) || [];
   let autoRaw = [], autoMissing = false;
   try{ autoRaw = await pgFetch('/rpc/auto_points', { method:'POST', body: JSON.stringify({ p_key: key }) }) || []; }catch(e){ autoMissing = true; }
+  if(!behaviors.length && isStaff()){
+    try{ behaviors = await pgFetch('/point_behaviors', { method:'POST', headers:{'Prefer':'return=representation'}, body: JSON.stringify(DEFAULT_BEHAVIORS.map(b => ({ course_key:key, name:b[0], value:b[1], icon:b[2], created_by:session.uid }))) }) || []; }catch(e){}
+  }
   return { behaviors, awards, autoRaw, autoMissing };
 }
 function totalsFor(entries, period){ const from = periodStart(period); const t = {}; entries.forEach(a => { if(from && new Date(a.at) < from) return; t[a.uid] = Math.round(((t[a.uid] || 0) + a.value) * 100) / 100; }); return t; }
@@ -4334,23 +4337,47 @@ function drawPtClass(body, d, draw){
 function openAwardDialog(d, uids, label, redraw){
   if(!isStaff()) return;
   const EMO = ['⭐','🏆','💪','🎯','🔥','👏','📚','💡','🤝','❤️','😴','⏰','⚠️','❌'];
-  openModal({ title:`Award points — ${label}`, width:520,
-    bodyHTML:`<div class="cv-field"><label class="cv-label" for="aw-name">Point name</label><input class="cv-input" id="aw-name" placeholder="e.g. Great presentation" maxlength="60"></div>
-      <div class="cv-field"><label class="cv-label" for="aw-emoji">Emoji</label><input class="cv-input" id="aw-emoji" value="⭐" maxlength="8" style="width:90px;font-size:22px;text-align:center;"><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">${EMO.map(e => `<button type="button" class="cv-btn plain emo" style="height:34px;font-size:20px;padding:0 8px;">${e}</button>`).join('')}</div></div>
-      <div class="cv-field"><label class="cv-label" for="aw-val">Points</label><input class="cv-input" id="aw-val" type="number" step="1" value="5" style="width:120px;"><div class="cv-hint">Positive to give points (e.g. 5), negative to deduct (e.g. -5).</div></div>
-      <div class="cv-field"><label class="cv-label" for="aw-note">Note (optional)</label><input class="cv-input" id="aw-note" placeholder="Shown in history and to the student"></div>`,
-    footerHTML:'<button class="cv-btn" data-close>Cancel</button><button class="cv-btn primary" id="aw-go">Give points</button>',
+  let editing = false;
+  const give = async (name, icon, value, note) => {
+    try{ const rows = await pgFetch('/point_awards', { method:'POST', headers:{'Prefer':'return=representation'}, body: JSON.stringify(uids.map(uid => ({ course_key: courseKey(), uid, behavior:name, icon, value, note: note || null, awarded_by: session.uid }))) });
+      (rows || []).forEach(x => d.awards.unshift(x)); buildEntries(d);
+      showToast(`${value > 0 ? '+' : ''}${value} ${icon} ${name} → ${label}`); closeModal(); redraw(); }
+    catch(err){ showToast(err.message || 'Could not award'); }
+  };
+  const tiles = () => d.behaviors.map((b, i) => `<div style="position:relative;"><button class="bh" data-i="${i}" style="width:100%;box-sizing:border-box;"><span class="ic2">${esc(b.icon || '⭐')}</span><span>${esc(b.name)}</span><span class="v ${b.value < 0 ? 'neg' : ''}">${b.value > 0 ? '+' : ''}${b.value}</span></button>${editing ? `<button class="cv-btn plain delb" data-i="${i}" title="Remove from my list" style="position:absolute;top:2px;right:2px;height:24px;padding:0 7px;color:#B91C1C;">✕</button>` : ''}</div>`).join('');
+  openModal({ title:`Award points — ${label}`, width:700,
+    bodyHTML:`<div style="display:flex;align-items:center;margin-bottom:10px;"><strong>My points list</strong><span style="flex:1"></span><button class="cv-btn plain" id="aw-edit">Edit list</button></div>
+      <div class="bh-grid" id="aw-tiles"></div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+      <strong>Create a new one</strong>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;align-items:flex-end;">
+        <div class="cv-field" style="flex:1;min-width:200px;margin:0;"><label class="cv-label" for="aw-name">Point name</label><input class="cv-input" id="aw-name" placeholder="e.g. Great presentation" maxlength="60"></div>
+        <div class="cv-field" style="width:90px;margin:0;"><label class="cv-label" for="aw-emoji">Emoji</label><input class="cv-input" id="aw-emoji" value="⭐" maxlength="8" style="font-size:20px;text-align:center;"></div>
+        <div class="cv-field" style="width:110px;margin:0;"><label class="cv-label" for="aw-val">Points</label><input class="cv-input" id="aw-val" type="number" step="1" value="5"></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">${EMO.map(e => `<button type="button" class="cv-btn plain emo" style="height:32px;font-size:18px;padding:0 7px;">${e}</button>`).join('')}</div>
+      <div class="cv-hint">Positive gives points (5), negative deducts (-5).</div>
+      <div class="cv-field" style="margin-top:12px;"><label class="cv-label" for="aw-note">Note (optional)</label><input class="cv-input" id="aw-note" placeholder="Shown in history and to the student"></div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:14px;"><input type="checkbox" id="aw-save" checked> Save to my points list for next time</label>`,
+    footerHTML:'<button class="cv-btn" data-close>Cancel</button><button class="cv-btn primary" id="aw-go">Give new points</button>',
     onMount: r => {
-      r.querySelector('#aw-name').focus();
+      const draw = () => {
+        const box = r.querySelector('#aw-tiles'); box.innerHTML = tiles() || '<div class="s" style="color:#6B7280;">Nothing saved yet — create your first below.</div>';
+        r.querySelector('#aw-edit').textContent = editing ? 'Done editing' : 'Edit list';
+        box.querySelectorAll('.bh').forEach(b => b.addEventListener('click', () => { const bh = d.behaviors[+b.dataset.i]; give(bh.name, bh.icon, bh.value, r.querySelector('#aw-note').value.trim()); }));
+        box.querySelectorAll('.delb').forEach(b => b.addEventListener('click', async e => { e.stopPropagation(); const bh = d.behaviors[+b.dataset.i]; if(!confirm(`Remove “${bh.name}” from your list? Points already given stay.`)) return; try{ await pgFetch(`/point_behaviors?id=eq.${bh.id}`, { method:'DELETE', headers:{'Prefer':'return=minimal'} }); d.behaviors.splice(+b.dataset.i, 1); draw(); }catch(err){ showToast(err.message); } }));
+      };
+      draw();
+      r.querySelector('#aw-edit').addEventListener('click', () => { editing = !editing; draw(); });
       r.querySelectorAll('.emo').forEach(b => b.addEventListener('click', () => { r.querySelector('#aw-emoji').value = b.textContent; }));
       r.querySelector('#aw-go').addEventListener('click', async () => {
-        const name = r.querySelector('#aw-name').value.trim(), icon = r.querySelector('#aw-emoji').value.trim() || '⭐', value = parseInt(r.querySelector('#aw-val').value, 10), note = r.querySelector('#aw-note').value.trim() || null;
+        const name = r.querySelector('#aw-name').value.trim(), icon = r.querySelector('#aw-emoji').value.trim() || '⭐', value = parseInt(r.querySelector('#aw-val').value, 10), note = r.querySelector('#aw-note').value.trim();
         if(!name){ showToast('Give the point a name'); return; }
         if(!value){ showToast('Enter points like 5 or -5'); return; }
-        try{ const rows = await pgFetch('/point_awards', { method:'POST', headers:{'Prefer':'return=representation'}, body: JSON.stringify(uids.map(uid => ({ course_key: courseKey(), uid, behavior:name, icon, value, note, awarded_by: session.uid }))) });
-          (rows || []).forEach(x => d.awards.unshift(x)); buildEntries(d);
-          showToast(`${value > 0 ? '+' : ''}${value} ${icon} ${name} → ${label}`); closeModal(); redraw(); }
-        catch(err){ showToast(err.message || 'Could not award'); }
+        if(r.querySelector('#aw-save').checked && !d.behaviors.some(b => b.name.toLowerCase() === name.toLowerCase() && b.value === value)){
+          try{ const made = await pgFetch('/point_behaviors', { method:'POST', headers:{'Prefer':'return=representation'}, body: JSON.stringify({ course_key:courseKey(), name, value, icon, created_by:session.uid }) }); if(made && made[0]) d.behaviors.push(made[0]); }catch(e){}
+        }
+        give(name, icon, value, note);
       });
     } });
 }
