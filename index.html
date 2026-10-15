@@ -2508,14 +2508,33 @@ function initRTE(host, html){
     else if(op === 'delTable'){ table.remove(); }
     wc();
   };
+  /* Embed several videos at once: one link or <iframe> code per line (Enter separates them) */
+  const embedMany = async (title, label) => {
+    save();
+    const v = await askForm({ title, ok:'Embed', fields:[{ id:'code', label, type:'textarea',
+      placeholder:'https://www.youtube.com/watch?v=...\n<iframe src="https://..."></iframe>\nhttps://vimeo.com/123456',
+      hint:'Paste as many as you like. Press Enter between each one and they all get embedded.' }] });
+    if(!v || !v.code.trim()) return;
+    const found = v.code.match(/<iframe[\s\S]*?<\/iframe>|<iframe[^>]*>|https?:\/\/[^\s<>"']+/gi) || [];
+    let html = '', n = 0;
+    found.forEach(piece => {
+      const h = videoLinkToEmbed(piece); if(!h) return;
+      html += `<div class="embed-frame">${sanitizeHtml(h)}</div>`;
+      const m = h.match(/youtube\.com\/embed\/([\w-]+)/);
+      if(m) html += `<p><a href="https://www.youtube.com/watch?v=${m[1]}" target="_blank" rel="noopener">Video not showing? Open it on YouTube ↗</a></p>`;
+      n++;
+    });
+    if(!n){ showToast('No video links or embed codes found'); return; }
+    insertHTML(html + '<p><br></p>');
+    const got = area.querySelectorAll('iframe').length;
+    showToast(got ? n + (n === 1 ? ' video' : ' videos') + ' embedded. Press Save to keep ' + (n === 1 ? 'it' : 'them') + '.' : 'Embed failed: the editor did not accept it');
+  };
   const A = {
     async link(){ save(); const v = await askForm({ title:'Insert link', ok:'Insert', fields:[{id:'url',label:'Link address',placeholder:'https://'},{id:'text',label:'Text to display',hint:'Leave blank to use the selected text or the address.'}] }); if(!v||!v.url.trim()) return;
       const url = v.url.trim(); if(!/^(https?:|mailto:)/i.test(url)){ showToast('Links must start with https://'); return; }
       const sel = (saved && saved.toString()) || ''; insertHTML(`<a href="${esc(url)}" target="_blank" rel="noopener">${esc(v.text.trim() || sel || url)}</a>`); },
     async image(){ save(); const v = await askForm({ title:'Insert image', ok:'Insert', fields:[{id:'url',label:'Image address',placeholder:'https://…/picture.png'},{id:'alt',label:'Description (for screen readers)'}] }); if(!v||!/^https?:\/\//i.test(v.url.trim())){ if(v) showToast('Enter an image address starting with https://'); return; } insertHTML(`<img src="${esc(v.url.trim())}" alt="${esc(v.alt)}">`); },
-    async media(){ save(); const v = await askForm({ title:'Embed media', ok:'Embed', fields:[{id:'code',label:'Video link or embed code',type:'textarea',placeholder:'Paste a YouTube / Vimeo link, or an <iframe …> embed code',hint:'Embed codes from sites like iframe-generator.org work too. (Build 2026-10-11 embed6)'}] }); if(!v) return;
-      const h = videoLinkToEmbed(v.code); if(!h){ showToast('That does not look like a video link or embed code'); return; } insertHTML(`<div class="embed-frame">${sanitizeHtml(h)}</div><p><br></p>`); { const m = h.match(/youtube\.com\/embed\/([\w-]+)/); if(m) insertHTML(`<p><a href="https://www.youtube.com/watch?v=${m[1]}" target="_blank" rel="noopener">Video not showing? Open it on YouTube ↗</a></p>`); }
-      showToast(area.querySelector('iframe') ? 'Video embedded — it plays on the saved page. Press Save to keep it.' : 'Embed failed: the editor did not accept it'); },
+    async media(){ await embedMany('Embed media', 'Video links or embed codes (one per line)'); },
     async document(){ save(); let files = []; try{ files = await listCourseFiles(); }catch(e){}
       if(!files.length){ showToast('No course files yet — upload one in Files first'); return; }
       const v = await askForm({ title:'Link a course file', ok:'Insert', fields:[{id:'f',label:'File',type:'select',options:files.map(f=>({value:f.path,label:f.title}))}] }); if(!v) return;
@@ -2523,7 +2542,7 @@ function initRTE(host, html){
     async table(){ save(); const v = await askForm({ title:'Insert table', ok:'Insert', fields:[{id:'r',label:'Rows',type:'number',value:'3'},{id:'c',label:'Columns',type:'number',value:'3'}] }); if(!v) return;
       const r = Math.min(20, Math.max(1, +v.r||3)), c = Math.min(10, Math.max(1, +v.c||3)); let h = '<table><tbody>';
       for(let i=0;i<r;i++){ h += '<tr>' + '<td><br></td>'.repeat(c) + '</tr>'; } insertHTML(h + '</tbody></table><p><br></p>'); },
-    async embed(){ save(); const v = await askForm({ title:'Embed code', ok:'Embed', fields:[{id:'code',label:'Embed code',type:'textarea',placeholder:'<iframe src="…"></iframe>'}] }); if(!v||!v.code.trim()) return; insertHTML(sanitizeHtml(fixEmbedSrc(v.code))); },
+    async embed(){ await embedMany('Embed code', 'Embed codes or links (one per line)'); },
     hr(){ insertHTML('<hr>'); },
     source(){ setSource(!srcMode); },
     fullscreen(){ root.classList.toggle('rte-full'); },
