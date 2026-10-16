@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ascent Academy</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1E1B4B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ascent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -466,6 +474,12 @@
   .cv-section .row .lead.green{color:#0B874B;}
 
 
+  .install-pill{position:fixed;right:16px;bottom:16px;z-index:300;display:none;align-items:center;gap:10px;background:#1E1B4B;color:#fff;border-radius:12px;padding:10px 12px 10px 16px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-size:14px;max-width:calc(100vw - 32px);}
+  .install-pill.show{display:flex;}
+  .install-pill button{all:unset;cursor:pointer;border-radius:8px;padding:7px 12px;font-weight:600;font-size:13.5px;}
+  .install-pill .go{background:#fff;color:#1E1B4B;}
+  .install-pill .x{padding:7px 9px;opacity:.75;}
+  @media (display-mode: standalone){ .install-pill{display:none !important;} }
   .lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;}
   .lib-card{border:1px solid var(--border);border-radius:10px;background:#fff;overflow:hidden;display:flex;flex-direction:column;cursor:pointer;transition:box-shadow .15s,transform .15s;}
   .lib-card:hover{box-shadow:0 6px 18px rgba(30,27,75,.14);transform:translateY(-1px);}
@@ -4670,6 +4684,38 @@ function setGreeting(){
    INIT
 =========================================================== */
 tryRestoreSession();
+
+/* ===========================================================
+   INSTALLABLE APP (PWA): service worker + install prompt
+=========================================================== */
+(function(){
+  if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  }
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  let dismissed = false; try{ dismissed = localStorage.getItem('installDismissed') === '1'; }catch(e){}
+  if(standalone || dismissed) return;
+  const pill = document.createElement('div'); pill.className = 'install-pill'; pill.id = 'install-pill';
+  document.addEventListener('DOMContentLoaded', () => document.body.appendChild(pill));
+  const hide = () => { pill.classList.remove('show'); try{ localStorage.setItem('installDismissed','1'); }catch(e){} };
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault(); deferred = e;
+    pill.innerHTML = '<span>Install Ascent Academy as an app</span><button class="go">Install</button><button class="x" aria-label="Dismiss">✕</button>';
+    pill.querySelector('.go').addEventListener('click', async () => { pill.classList.remove('show'); deferred.prompt(); try{ await deferred.userChoice; }catch(_){} deferred = null; });
+    pill.querySelector('.x').addEventListener('click', hide);
+    pill.classList.add('show');
+  });
+  window.addEventListener('appinstalled', () => pill.classList.remove('show'));
+  // iPhone / iPad Safari has no install event: show how to add it
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if(ios){
+    window.addEventListener('load', () => setTimeout(() => {
+      pill.innerHTML = '<span>To install: tap <b>Share</b>, then <b>Add to Home Screen</b></span><button class="x" aria-label="Dismiss">✕</button>';
+      pill.querySelector('.x').addEventListener('click', hide); pill.classList.add('show');
+    }, 2500));
+  }
+})();
 </script>
 </body>
 </html>
