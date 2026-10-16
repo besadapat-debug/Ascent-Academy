@@ -1,0 +1,71 @@
+name: Build apps
+
+# Run it from the Actions tab (Build apps -> Run workflow), or push a tag like v1.0.0.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+defaults:
+  run:
+    working-directory: native
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with: { name: windows-installer, path: 'native/dist/*.exe' }
+
+  macos:
+    runs-on: macos-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run dist:mac
+      - uses: actions/upload-artifact@v4
+        with: { name: mac-dmg, path: 'native/dist/*.dmg' }
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run cap:android
+      - name: Build debug APK (installs directly on any Android phone)
+        run: ./gradlew assembleDebug
+        working-directory: native/android
+      - uses: actions/upload-artifact@v4
+        with: { name: android-apk, path: 'native/android/app/build/outputs/apk/debug/*.apk' }
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run cap:ios
+      - name: Check the iPhone app compiles (unsigned simulator build)
+        run: |
+          xcodebuild -project App/App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
+        working-directory: native/ios
+      # The Xcode project, ready to open on a Mac and publish with your Apple Developer account
+      - run: zip -qr ios-project.zip ios
+      - uses: actions/upload-artifact@v4
+        with: { name: ios-xcode-project, path: native/ios-project.zip }
